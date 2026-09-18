@@ -534,7 +534,8 @@ export default function Studio() {
     const locals = ids.flatMap((id) => localRef.current.comments[id] || []);
     list = list.map((r) => {
       const loc = locals.find((c) => c.id === r.id);
-      return loc?.drawing_id && !r.drawing_id ? { ...r, drawing_id: loc.drawing_id } : r;
+      if (!loc) return r;
+      return { ...r, drawing_id: r.drawing_id || loc.drawing_id, status: loc.status || r.status };
     });
     const extra = locals.filter((c) => !list.some((r) => r.id === c.id) && String(c.body || '').trim() !== '4');
     list = extra.length ? [...list, ...extra] : list;
@@ -544,6 +545,7 @@ export default function Studio() {
     }
     commentsRef.current = list;
     setComments(list);
+    engRef.current?.setPins(list, pending);
     setPhotos((prev) => {
       const keep = prev.filter((p) => !ids.includes(p.model_id));
       const next = [...keep, ...photosFromComments(list)];
@@ -989,25 +991,35 @@ export default function Studio() {
   }
 
   async function toggleStatus(c) {
-    const next = nextIssueStatus(issueStatus(c));
+    const prev = issueStatus(c);
+    const next = nextIssueStatus(prev);
+    const same = (row) => row === c || (c.id != null && row.id === c.id);
+    const patch = (list, status) => (list || []).map((row) => (same(row) ? { ...row, status } : row));
+    const apply = (status) => {
+      for (const id of Object.keys(localRef.current.comments)) {
+        localRef.current.comments[id] = patch(localRef.current.comments[id], status);
+      }
+      const host = c.model_id;
+      if (host && !(localRef.current.comments[host] || []).some(same)) {
+        (localRef.current.comments[host] ||= []).push({ ...c, status });
+      }
+      commentsRef.current = patch(commentsRef.current, status);
+      setComments(commentsRef.current);
+      engRef.current?.setPins(commentsRef.current, pending);
+    };
+    apply(next);
     if (hasSupabase && isShareableId(String(c.id || '')) && statusOkRef.current) {
       const { error } = await supabase.from('comments').update({ status: next }).eq('id', c.id);
       if (error) {
         if (error.code === 'PGRST204' || error.code === '42501' || error.code === 'PGRST301' || schemaGap(error.message)) statusOkRef.current = false;
         else {
+          apply(prev);
           setCommentErr(true);
           setCommentStatus(lectureErr(error.message));
           return;
         }
       }
     }
-    const same = (row) => row === c || (c.id != null && row.id === c.id);
-    const patch = (list) => (list || []).map((row) => (same(row) ? { ...row, status: next } : row));
-    for (const id of Object.keys(localRef.current.comments)) {
-      localRef.current.comments[id] = patch(localRef.current.comments[id]);
-    }
-    commentsRef.current = patch(commentsRef.current);
-    setComments(commentsRef.current);
     if (next === 'done') {
       await writeEvent({
         type: 'done',
