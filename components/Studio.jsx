@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ViewerEngine } from '@/lib/viewer-engine';
-import { kindOf, is3d, isShareableId, sharePath, fmtDate, safeFileName, isPdfName, isImageFile, issueStatus, nextIssueStatus, lectureErr, hashColor, peersFromPresence, isPdfComment, commentSurface, commentWhere, schemaGap, unitPos, ndcFromEvent, ndcToUnit, pageUnitFromRotated, rotatedFromPageUnit, groupProjects, sampleBundle, hlabBundle, mergeLectureModels, mergeLectureDrawings, SAMPLE_PROJECT, fileKindLabel, lectureFileName, commentHotkeyBlocked, projectKey, projectNameOf, projectActivity, activityTitle, fileEventType, asActivityEvent, eventKind, PROJECTS_KEY, readNamedProjects, addNamedProject, pickProject } from '@/lib/format';
+import { kindOf, is3d, isShareableId, sharePath, fmtDate, safeFileName, isPdfName, isImageFile, issueStatus, nextIssueStatus, lectureErr, hashColor, peersFromPresence, isPdfComment, commentSurface, commentWhere, schemaGap, unitPos, ndcFromEvent, ndcToUnit, pageTurn, clampPdfZoom, pageUnitFromRotated, rotatedFromPageUnit, groupProjects, sampleBundle, hlabBundle, mergeLectureModels, mergeLectureDrawings, SAMPLE_PROJECT, fileKindLabel, lectureFileName, commentHotkeyBlocked, projectKey, projectNameOf, projectActivity, activityTitle, fileEventType, asActivityEvent, eventKind, PROJECTS_KEY, readNamedProjects, addNamedProject, pickProject } from '@/lib/format';
 import { paintPdfPage } from '@/lib/pdf-view';
 import { supabase, hasSupabase, BUCKET, PHOTO_BUCKET, DRAWING_BUCKET, APP_TITLE, publicUrl } from '@/lib/supabase';
 
@@ -13,7 +13,12 @@ const PRESENCE_KEY = 'viewer-presence';
 function readActivity() {
   try {
     const raw = JSON.parse(localStorage.getItem(ACTIVITY_KEY) || '[]');
-    return Array.isArray(raw) ? raw.filter((e) => e && e.type && e.at) : [];
+    const rows = Array.isArray(raw) ? raw.filter((e) => e && e.type && e.at) : [];
+    const next = rows.filter((e) => String(e.name || '').trim() !== '4');
+    if (next.length !== rows.length) {
+      try { localStorage.setItem(ACTIVITY_KEY, JSON.stringify(next)); } catch { /* quota */ }
+    }
+    return next;
   } catch {
     return [];
   }
@@ -114,6 +119,7 @@ function noteStatusGapMsg(already) {
   console.assert(noteEventsGapMsg('남겼어요.', false, false) === '남겼어요.');
   console.assert(noteStatusGapMsg(false) === '완료는 supabase.sql을 실행하면 DB에 남아요.');
   console.assert(noteStatusGapMsg(true) === '');
+  console.assert(!isShareableId('local-sample-pdf') && !isShareableId('local-sample-ifc'));
 }
 
 export default function Studio() {
@@ -135,6 +141,7 @@ export default function Studio() {
   const pdfCanvasRef = useRef(null);
   const pdfStageRef = useRef(null);
   const rotRef = useRef(0);
+  const flipRef = useRef(false);
   const drawingRef = useRef(null);
   const pageRef = useRef(1);
   const modelsRef = useRef([]);
@@ -197,6 +204,7 @@ export default function Studio() {
   const [pdfPages, setPdfPages] = useState(1);
   const [pdfRot, setPdfRot] = useState(0);
   const [pdfZoom, setPdfZoom] = useState(1);
+  const [pdfFlip, setPdfFlip] = useState(false);
   const [pdfErr, setPdfErr] = useState('');
   const [activeKey, setActiveKey] = useState(() => projectKey(SAMPLE_PROJECT));
   const [namedProjects, setNamedProjects] = useState([]);
@@ -209,6 +217,7 @@ export default function Studio() {
   drawingRef.current = drawing;
   pageRef.current = pdfPage;
   rotRef.current = pdfRot;
+  flipRef.current = pdfFlip;
   modelsRef.current = models;
   drawingsAllRef.current = drawings;
   photosRef.current = photos;
@@ -397,11 +406,18 @@ export default function Studio() {
     let dead = false;
     const paint = async () => {
       const box = stage.getBoundingClientRect();
+      if (box.width < 8 || box.height < 8) return;
+      const keep = {
+        x: (stage.scrollLeft + stage.clientWidth / 2) / Math.max(1, stage.scrollWidth),
+        y: (stage.scrollTop + stage.clientHeight / 2) / Math.max(1, stage.scrollHeight),
+      };
       try {
         const info = await paintPdfPage(canvas, url, pdfPage, pdfRot, box.width - 48, box.height - 48, pdfZoom);
         if (dead || !info) return;
         setPdfPages(info.pages);
         setPdfErr('');
+        stage.scrollLeft = keep.x * stage.scrollWidth - stage.clientWidth / 2;
+        stage.scrollTop = keep.y * stage.scrollHeight - stage.clientHeight / 2;
       } catch (err) {
         if (dead || err?.name === 'RenderingCancelledException') return;
         console.error(err);
@@ -430,7 +446,7 @@ export default function Studio() {
       const d = drawingRef.current;
       if (d) {
         const shown = unitPos(cursorRef.current);
-        const pos = unitPos(pageUnitFromRotated(shown.x, shown.y, rotRef.current));
+        const pos = unitPos(pageUnitFromRotated(shown.x, shown.y, rotRef.current, flipRef.current));
         setPending({ kind: 'pdf', x: pos.x, y: pos.y, page: pageRef.current, drawing_id: d.id });
         setRightOpen(true);
         return;
@@ -510,13 +526,22 @@ export default function Studio() {
     const ids = (Array.isArray(modelIds) ? modelIds : [modelIds]).filter(Boolean);
     const remoteIds = ids.filter((id) => isShareableId(String(id)));
     let list = [];
-    if (!hasSupabase || !remoteIds.length) list = ids.flatMap((id) => localRef.current.comments[id] || []);
+    if (!hasSupabase || !remoteIds.length) list = ids.flatMap((id) => (localRef.current.comments[id] || []).filter((c) => String(c.body || '').trim() !== '4'));
     else {
       const { data, error } = await supabase.from('comments').select('*').in('model_id', remoteIds).order('created_at', { ascending: true });
       list = error ? [] : data;
     }
-    const extra = ids.flatMap((id) => localRef.current.comments[id] || []).filter((c) => !list.some((r) => r.id === c.id));
+    const locals = ids.flatMap((id) => localRef.current.comments[id] || []);
+    list = list.map((r) => {
+      const loc = locals.find((c) => c.id === r.id);
+      return loc?.drawing_id && !r.drawing_id ? { ...r, drawing_id: loc.drawing_id } : r;
+    });
+    const extra = locals.filter((c) => !list.some((r) => r.id === c.id) && String(c.body || '').trim() !== '4');
     list = extra.length ? [...list, ...extra] : list;
+    for (const id of ids) {
+      const rows = localRef.current.comments[id];
+      if (rows) localRef.current.comments[id] = rows.filter((c) => String(c.body || '').trim() !== '4');
+    }
     commentsRef.current = list;
     setComments(list);
     setPhotos((prev) => {
@@ -540,6 +565,7 @@ export default function Studio() {
     setPdfPages(1);
     setPdfRot(0);
     setPdfZoom(1);
+    setPdfFlip(false);
     setPdfErr('');
     setPreview(null);
     if (pin) setPending(null);
@@ -580,7 +606,7 @@ export default function Studio() {
   function onPdfPointerUp(e) {
     if (e.button !== 0 || !drawing || !pdfRef.current) return;
     const shown = ndcToUnit(ndcFromEvent(e, pdfRef.current));
-    const pos = unitPos(pageUnitFromRotated(shown.x, shown.y, rotRef.current));
+    const pos = unitPos(pageUnitFromRotated(shown.x, shown.y, rotRef.current, flipRef.current));
     cursorRef.current = shown;
     setPending({ kind: 'pdf', x: pos.x, y: pos.y, page: pdfPage, drawing_id: drawing.id });
     setRightOpen(true);
@@ -660,6 +686,12 @@ export default function Studio() {
 
   async function openProject(p) {
     if (!p) return;
+    const ifc = (p.latest || []).find((f) => f.kind === 'ifc')
+      || (p.back || []).find((f) => f.kind === 'ifc');
+    if (ifc) {
+      await openFile(ifc, p);
+      return;
+    }
     setActiveKey(p.key);
     activeKeyRef.current = p.key;
     const head = p.head;
@@ -924,11 +956,12 @@ export default function Studio() {
         await finishLocal(photo ? '이 브라우저에만 남아요. 사진은 공유되지 않아요.' : '이 브라우저에만 남아요.');
         return;
       }
-      if (!isShareableId(String(current.id)) || (pdfPin && !isShareableId(String(pending.drawing_id || '')))) {
-        failDb('DB에 저장 못 했어요');
+      if (!isShareableId(String(current.id))) {
+        await finishLocal(photo ? '이 브라우저에만 남아요. 사진은 공유되지 않아요.' : '이 브라우저에만 남아요.');
         return;
       }
       const payload = { model_id: current.id, ...row };
+      if (pdfPin && !isShareableId(String(payload.drawing_id || ''))) delete payload.drawing_id;
       if (photo) {
         const path = `${current.id}/${Date.now()}_${safeFileName(photo.name)}`;
         const up = await supabase.storage.from(PHOTO_BUCKET).upload(path, photo, { upsert: false });
@@ -943,6 +976,7 @@ export default function Studio() {
         failDb(error.message);
         return;
       }
+      if (pdfPin && pending.drawing_id && !data.drawing_id) keepLocalComment({ ...data, drawing_id: pending.drawing_id, kind: 'pdf' });
       await writeEvent({ type: 'comment', model_id: current.id, comment_id: data.id, ref: data.id, author: data.author, name: data.body, surface: commentSurface(data) });
       setBody('');
       setPhoto(null);
@@ -956,15 +990,10 @@ export default function Studio() {
 
   async function toggleStatus(c) {
     const next = nextIssueStatus(issueStatus(c));
-    if (hasSupabase && !isShareableId(String(c.id || ''))) {
-      setCommentErr(true);
-      setCommentStatus('DB에 저장 못 했어요');
-      return;
-    }
-    if (hasSupabase && statusOkRef.current) {
+    if (hasSupabase && isShareableId(String(c.id || '')) && statusOkRef.current) {
       const { error } = await supabase.from('comments').update({ status: next }).eq('id', c.id);
       if (error) {
-        if (error.code === 'PGRST204' || schemaGap(error.message)) statusOkRef.current = false;
+        if (error.code === 'PGRST204' || error.code === '42501' || error.code === 'PGRST301' || schemaGap(error.message)) statusOkRef.current = false;
         else {
           setCommentErr(true);
           setCommentStatus(lectureErr(error.message));
@@ -980,7 +1009,7 @@ export default function Studio() {
     commentsRef.current = patch(commentsRef.current);
     setComments(commentsRef.current);
     if (next === 'done') {
-      const logged = await writeEvent({
+      await writeEvent({
         type: 'done',
         at: new Date().toISOString(),
         author: author.trim() || c.author || '이름 없음',
@@ -991,13 +1020,8 @@ export default function Studio() {
         surface: commentSurface(c),
       });
       if (statusOkRef.current) {
-        if (hasSupabase && !logged) {
-          setCommentErr(true);
-          setCommentStatus('DB에 저장 못 했어요');
-        } else {
-          const note = noteEventsGap('');
-          if (note) setCommentStatus(note);
-        }
+        const note = noteEventsGap('');
+        if (note) setCommentStatus(note);
       }
     }
     if (!statusOkRef.current) {
@@ -1134,8 +1158,7 @@ export default function Studio() {
       return;
     }
     if (!isShareableId(String(host.id))) {
-      setUploadErr(true);
-      setUploadStatus('DB에 저장 못 했어요');
+      keepLocalDrawing(file, '이 브라우저에만 열려요. 공유되지 않아요.');
       return;
     }
     setUploadStatus('올리는 중…');
@@ -1211,7 +1234,7 @@ export default function Studio() {
 
   const visibleComments = comments
     .map((c, i) => ({ c, i }))
-    .filter(({ c }) => issueFilter === 'all' || issueStatus(c) === issueFilter);
+    .filter(({ c }) => issueFilter === 'done' ? issueStatus(c) === 'done' : issueStatus(c) !== 'done');
   const acts = project ? projectActivity(project, comments, extraEvents, author) : [];
   const modelPeers = peers.filter((p) => p.surface !== 'pdf');
   const pdfPeers = peers.filter((p) => p.surface === 'pdf' && p.drawing_id === String(drawing?.id || '') && p.page === pdfPage);
@@ -1263,15 +1286,15 @@ export default function Studio() {
             {drawing.url && pdfErr && <p className="empty-kicker">{pdfErr}</p>}
             {drawing.url && !pdfErr && (
               <div className="pdf-sheet">
-                <canvas ref={pdfCanvasRef} className="pdf-page-canvas" />
+                <canvas ref={pdfCanvasRef} className={`pdf-page-canvas${pdfFlip ? ' is-flip' : ''}`} />
                 <div
                   ref={pdfRef}
                   className="pdf-overlay is-pin"
                   onPointerUp={onPdfPointerUp}
                 >
               {comments.map((c, i) => {
-                if (!isPdfComment(c) || String(c.drawing_id) !== String(drawing.id) || (c.page || 1) !== pdfPage || c.pos_x == null) return null;
-                const mark = rotatedFromPageUnit(c.pos_x, c.pos_y, pdfRot);
+                if (!isPdfComment(c) || String(c.drawing_id) !== String(drawing.id) || (c.page || 1) !== pdfPage || c.pos_x == null || issueStatus(c) === 'done') return null;
+                const mark = rotatedFromPageUnit(c.pos_x, c.pos_y, pdfRot, pdfFlip);
                 return (
                   <button
                     key={c.id || i}
@@ -1289,7 +1312,7 @@ export default function Studio() {
                 );
               })}
               {pending?.kind === 'pdf' && pending.page === pdfPage && (() => {
-                const mark = rotatedFromPageUnit(pending.x, pending.y, pdfRot);
+                const mark = rotatedFromPageUnit(pending.x, pending.y, pdfRot, pdfFlip);
                 return <span className="pdf-pin pending" style={{ '--x': mark.x, '--y': mark.y, '--c': '#1c1c21' }}>+</span>;
               })()}
               {pdfPeers.length > 0 && (
@@ -1352,15 +1375,18 @@ export default function Studio() {
                 <Btn className="icon-btn" disabled={pdfPage >= pdfPages} onClick={() => setPdfPage((p) => Math.min(pdfPages, p + 1))} title="다음 쪽" aria-label="다음 쪽">
                   <Icon><path d="M9 6l6 6-6 6" /></Icon>
                 </Btn>
-                <Btn className="icon-btn" disabled={pdfZoom <= 0.5} onClick={() => setPdfZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 4) / 4))} title="축소" aria-label="축소">
+                <Btn className="icon-btn" disabled={pdfZoom <= 0.5} onClick={() => setPdfZoom((z) => clampPdfZoom(z - 0.25))} title="축소" aria-label="축소">
                   <Icon><path d="M5 12h14" /></Icon>
                 </Btn>
                 <span className="pdf-page">{Math.round(pdfZoom * 100)}%</span>
-                <Btn className="icon-btn" disabled={pdfZoom >= 3} onClick={() => setPdfZoom((z) => Math.min(3, Math.round((z + 0.25) * 4) / 4))} title="확대" aria-label="확대">
+                <Btn className="icon-btn" disabled={pdfZoom >= 3} onClick={() => setPdfZoom((z) => clampPdfZoom(z + 0.25))} title="확대" aria-label="확대">
                   <Icon><path d="M12 5v14M5 12h14" /></Icon>
                 </Btn>
-                <Btn className="icon-btn" onClick={() => setPdfRot((r) => (r + 90) % 360)} title="회전" aria-label="회전">
-                  <Icon><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 4v5h-5" /></Icon>
+                <Btn className="icon-btn" onClick={() => setPdfRot((r) => pageTurn(r - 90))} title="회전" aria-label="회전">
+                  <Icon><path d="M4 12a8 8 0 1 0 2.3-5.6" /><path d="M4 4v5h5" /></Icon>
+                </Btn>
+                <Btn className="icon-btn" pressed={pdfFlip} onClick={() => setPdfFlip((f) => !f)} title="좌우 반전" aria-label="좌우 반전">
+                  <Icon><path d="M8 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h3" /><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" /><path d="M12 20v2M12 14v2M12 8v2M12 2v2" /></Icon>
                 </Btn>
                 <Btn onClick={closeDrawing}>닫기</Btn>
               </Cluster>

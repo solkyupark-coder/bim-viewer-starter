@@ -484,9 +484,12 @@ body {
   position: absolute;
   inset: 0;
   z-index: 4;
-  display: grid;
-  place-items: center;
+  display: flex;
+  justify-content: safe center;
+  align-items: safe center;
   overflow: auto;
+  padding: 24px;
+  box-sizing: border-box;
   background: #1c1c21;
 }
 .pdf-stage > .empty-kicker {
@@ -496,8 +499,9 @@ body {
   place-items: center;
   color: #9a9aa3;
 }
-.pdf-sheet { position: relative; box-shadow: 0 8px 28px #0007; }
-.pdf-page-canvas { display: block; pointer-events: none; background: #fff; }
+.pdf-sheet { position: relative; margin: auto; flex: 0 0 auto; box-shadow: 0 8px 28px #0007; }
+.pdf-page-canvas { display: block; pointer-events: none; background: #fff; transform-origin: center; }
+.pdf-page-canvas.is-flip { transform: scaleX(-1); }
 .pdf-overlay {
   position: absolute;
   inset: 0;
