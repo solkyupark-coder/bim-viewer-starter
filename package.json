@@ -1,0 +1,23 @@
+{
+  "name": "bim-viewer-starter",
+  "private": true,
+  "version": "0.2.0",
+  "scripts": {
+    "dev": "next dev -p 5173",
+    "build": "next build",
+    "start": "next start -p 5173",
+    "check": "node lib/format.js"
+  },
+  "dependencies": {
+    "@mlightcad/libredwg-web": "^0.7.13",
+    "@supabase/supabase-js": "^2.45.0",
+    "dxf-viewer": "^1.0.30",
+    "next": "^15.5.25",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "rhino3dm": "^8.4.0",
+    "three": "^0.160.0",
+    "web-ifc": "^0.0.66"
+  }
+}

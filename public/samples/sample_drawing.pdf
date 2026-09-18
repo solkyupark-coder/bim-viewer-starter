@@ -1,0 +1,101 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1191 842] /Contents 5 0 R /Resources << /Font << /F1 7 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 1191 842] /Contents 6 0 R /Resources << /Font << /F1 7 0 R >> >> >>
+endobj
+5 0 obj
+<< /Length 654 >>
+stream
+0.35 w
+36 36 m 1155 36 l 1155 806 l 36 806 l S
+1.2 w
+80 140 m 620 140 l 620 720 l 80 720 l S
+80 430 m 620 430 l S
+350 140 m 350 720 l S
+0.7 w
+110 170 m 320 170 l 320 400 l 110 400 l S
+380 170 m 590 170 l 590 400 l 380 400 l S
+110 460 m 320 460 l 320 690 l 110 690 l S
+380 460 m 590 460 l 590 690 l 380 690 l S
+0.9 w
+680 140 m 1110 140 l 1110 720 l 680 720 l S
+680 280 m 1110 280 l S
+680 560 m 1110 560 l S
+860 140 m 860 720 l S
+BT
+/F1 18 Tf
+48 768 Td
+(JEONGRIM SAMPLE  /  LEVEL 1 PLAN) Tj
+/F1 10 Tf
+0 -16 Td
+(sample_drawing.pdf   A3 landscape   1 of 2) Tj
+/F1 9 Tf
+80 118 Td
+(ROOM A) Tj
+270 0 Td
+(ROOM B) Tj
+-270 290 Td
+(ROOM C) Tj
+270 0 Td
+(CORE) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Length 430 >>
+stream
+0.35 w
+36 36 m 1155 36 l 1155 806 l 36 806 l S
+1.1 w
+80 200 m 1110 200 l 1110 640 l 80 640 l S
+80 200 m 80 640 l S
+0.7 w
+80 420 m 1110 420 l S
+300 200 m 300 640 l S
+620 200 m 620 640 l S
+900 200 m 900 640 l S
+BT
+/F1 18 Tf
+48 768 Td
+(JEONGRIM SAMPLE  /  SOUTH ELEVATION) Tj
+/F1 10 Tf
+0 -16 Td
+(sample_drawing.pdf   A3 landscape   2 of 2) Tj
+/F1 9 Tf
+120 180 Td
+(GL-1) Tj
+280 0 Td
+(GL-2) Tj
+320 0 Td
+(GL-3) Tj
+280 0 Td
+(GL-4) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000248 00000 n 
+0000000375 00000 n 
+0000001079 00000 n 
+0000001559 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1629
+%%EOF

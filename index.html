@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>모델 뷰어 · 코멘트</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="/src/style.css">
+  <script src="/config.js"></script>
+</head>
+<body>
+  <div id="app">
+    <aside id="left">
+      <header class="brand">
+        <p class="eyebrow">Week 4 · Model Review</p>
+        <h1 id="title">모델 뷰어</h1>
+        <p id="mode" class="mode"></p>
+      </header>
+
+      <section class="box">
+        <h2>모델 올리기</h2>
+        <p class="hint">IFC, DWG, DXF, GLB, DAE, 3DM. 화면에 끌어다 놓아도 돼요. 스케치업은 glb나 dae로 내보내서 올려요.</p>
+        <label class="file">
+          <input id="file" type="file" accept=".ifc,.dxf,.dwg,.glb,.gltf,.dae,.3dm">
+          <span>파일 고르기</span>
+        </label>
+        <p id="upload-status" class="status"></p>
+        <div class="samples">
+          <span>파일이 없으면</span>
+          <button type="button" data-sample="/samples/Jeongrim3_3D.ifc">샘플 IFC</button>
+          <button type="button" data-sample="/samples/Jeongrim3_2D.dwg">샘플 DWG</button>
+          <button type="button" data-sample="/samples/sample_plan.dxf">샘플 DXF</button>
+          <button type="button" data-sample="/samples/sample_house.glb">샘플 GLB</button>
+        </div>
+      </section>
+
+      <section class="box grow">
+        <h2>올라온 모델</h2>
+        <ul id="models" class="models"></ul>
+      </section>
+    </aside>
+
+    <main id="stage">
+      <div id="viewer"></div>
+      <div id="empty" class="empty">
+        <p>왼쪽에서 모델을 고르거나 올려 주세요.</p>
+      </div>
+      <div id="loading" class="loading" hidden><span></span><p>불러오는 중</p></div>
+      <div id="viewer-bar" class="viewer-bar" hidden>
+        <span id="current-name" class="mono"></span>
+        <button id="fit" type="button">화면에 맞추기</button>
+        <button id="pin" type="button">📍 객체 찍기</button>
+        <span class="tools3d" id="tools3d" hidden>
+          <button id="isolate" type="button" title="찍은 객체만 남기고 나머지를 숨깁니다">선택만 보기</button>
+          <button id="hide" type="button" title="찍은 객체를 숨깁니다">선택 숨기기</button>
+          <select id="storey" title="한 층만 봅니다"><option value="">전체 층</option></select>
+          <button id="show-all" type="button" hidden>모두 보이기</button>
+          <label title="이 높이 위를 잘라냅니다">단면 <input id="section" type="range" min="0" max="1000" value="1000"></label>
+          <label title="층별로 벌립니다">분해 <input id="explode" type="range" min="0" max="100" value="0"></label>
+        </span>
+      </div>
+      <div id="pin-hint" class="pin-hint" hidden>코멘트를 달 객체를 클릭해 주세요. 취소는 Esc.</div>
+    </main>
+
+    <aside id="right">
+      <section class="box grow">
+        <h2>코멘트</h2>
+        <p class="hint" id="comment-hint">모델을 고르면 코멘트를 남길 수 있어요.</p>
+        <ul id="comments" class="comments"></ul>
+      </section>
+      <form id="comment-form" class="box" hidden>
+        <div id="pin-state" class="pin-state" hidden><span></span><button id="pin-clear" type="button">지우기</button></div>
+        <label class="field">
+          <span>이름</span>
+          <input id="author" type="text" placeholder="이름" maxlength="20" required>
+        </label>
+        <label class="field">
+          <span>코멘트</span>
+          <textarea id="body" rows="3" placeholder="예: 3층 발코니 난간 높이 확인 필요" required maxlength="500"></textarea>
+        </label>
+        <button type="submit" class="primary">남기기</button>
+        <p id="comment-status" class="status"></p>
+      </form>
+    </aside>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
