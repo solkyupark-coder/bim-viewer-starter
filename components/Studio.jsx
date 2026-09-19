@@ -8,6 +8,8 @@ import { paintPdfPage } from '@/lib/pdf-view';
 import { supabase, hasSupabase, BUCKET, PHOTO_BUCKET, DRAWING_BUCKET, APP_TITLE, publicUrl } from '@/lib/supabase';
 
 const AUTHOR_KEY = 'viewer-author';
+// 좁은 화면(폰)에선 패널이 뷰어를 덮으므로 한 번에 하나만 엽니다
+const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 960px)').matches;
 const RIGHT_W_KEY = 'viewer-right-w';
 const ACTIVITY_KEY = 'viewer-activity';
 const PRESENCE_KEY = 'viewer-presence';
@@ -237,6 +239,7 @@ export default function Studio() {
 
   useEffect(() => {
     setAuthor(localStorage.getItem(AUTHOR_KEY) || '');
+    if (narrow()) setRightOpen(false);
     const w = Number(localStorage.getItem(RIGHT_W_KEY));
     if (w >= 220 && w <= 720) setRightW(w);
     setExtraEvents(readActivity());
@@ -250,7 +253,10 @@ export default function Studio() {
       onSelect: (sel) => setSelected(sel),
       onPin: (p) => {
         setPending(p);
-        if (p) setRightOpen(true);
+        if (p) {
+          setRightOpen(true);
+          if (narrow()) setLeftOpen(false);
+        }
       },
       onStoreys: (names) => {
         setStoreys(names);
@@ -738,6 +744,7 @@ export default function Studio() {
     setActiveKey(project.key);
     activeKeyRef.current = project.key;
     setFold((s) => ({ ...s, [project.key]: true }));
+    if (narrow()) setLeftOpen(false);
     if (pdf) {
       const dest = file.source || file;
       const want = pendingFocusRef.current;
@@ -1786,11 +1793,11 @@ export default function Studio() {
       </div>
 
       <nav className="rail" aria-label="패널">
-        <Btn pressed={leftOpen} className="rail-btn" onClick={() => setLeftOpen((v) => !v)} aria-label="프로젝트">
+        <Btn pressed={leftOpen} className="rail-btn" onClick={() => { setLeftOpen((v) => !v); if (narrow() && !leftOpen) setRightOpen(false); }} aria-label="프로젝트">
           <Icon><path d="M4 8h6l2 2h8v10H4z" /><path d="M4 8V6h5l2 2" /></Icon>
           <span className="rail-lbl">프로젝트</span>
         </Btn>
-        <Btn pressed={rightOpen} className="rail-btn" onClick={() => setRightOpen((v) => !v)} aria-label="코멘트">
+        <Btn pressed={rightOpen} className="rail-btn" onClick={() => { setRightOpen((v) => !v); if (narrow() && !rightOpen) setLeftOpen(false); }} aria-label="코멘트">
           <Icon><path d="M5 5h14v10H8l-3 3z" /></Icon>
           <span className="rail-lbl">코멘트</span>
         </Btn>

@@ -358,8 +358,14 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0 6px;
+  gap: 1px 6px;
 }
+/* 1행: 이름 · 시간 · [완료]   2행: 위치 · 수정/삭제 */
+.thread-meta .who { order: 1; }
+.thread-meta .when { order: 2; }
+.thread-meta .done-check { order: 3; }
+.thread-meta .where { order: 4; flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+.thread-meta .thread-acts { order: 5; margin-left: auto; }
 .comments .who,
 .comments .where {
   border: 0;
@@ -418,7 +424,7 @@ body {
 }
 .done-check.on { color: var(--primary); }
 .done-check input { accent-color: var(--primary); margin: 0; }
-.thread-acts { display: inline-flex; gap: 6px; margin-left: 6px; }
+.thread-acts { display: inline-flex; gap: 8px; align-self: baseline; }
 .thread-act {
   border: 0;
   padding: 0;
@@ -934,8 +940,17 @@ body {
   .tb-fly { top: auto; bottom: calc(100% + 8px); }
   .is-models .toolbar, .is-comments .toolbar, .is-models.is-comments .toolbar { max-width: none; }
   .panel { width: min(268px, calc(100vw - 56px)); }
+  .panel-resize { display: none; }
   .statusbar { bottom: auto; top: 8px; left: 56px; }
   .is-models .statusbar { left: 56px; }
+}
+@media (max-width: 640px) {
+  .app-bar-line { display: none; }
+  .app-bar-field { width: auto; flex: 1 1 120px; }
+  /* 폰: 패널이 레일 옆을 꽉 채우고, 한 번에 하나만 열립니다. 패널이 열려 있으면 뷰어 도구는 숨깁니다 */
+  .panel { width: calc(100vw - 48px); }
+  .is-models .toolbar, .is-comments .toolbar,
+  .is-models .statusbar, .is-comments .statusbar { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
