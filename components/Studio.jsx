@@ -1648,6 +1648,19 @@ export default function Studio() {
                 <Btn onClick={closeDrawing}>닫기</Btn>
               </Cluster>
             )}
+            {!drawing && view && (
+              <Cluster label="코멘트">
+                <Btn
+                  className="icon-btn"
+                  pressed={tool === 'pin'}
+                  onClick={() => engRef.current?.setTool(tool === 'pin' ? 'select' : 'pin')}
+                  title="위치 찍기 — 켜고 모델이나 도면을 클릭 (키보드: /)"
+                  aria-label="위치 찍기"
+                >
+                  <Icon><path d="M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z" /><circle cx="12" cy="11" r="2" /></Icon>
+                </Btn>
+              </Cluster>
+            )}
             {!drawing && (
               <Cluster label="카메라">
                 <Btn className="icon-btn" onClick={() => engRef.current?.fit()} title="맞춤" aria-label="맞춤">
@@ -1993,7 +2006,7 @@ export default function Studio() {
               )}
               <div className="compose-box">
                 <span className="compose-who" style={{ '--pin': hashColor(author || '이름') }} aria-hidden="true">{(author || '?').slice(0, 1)}</span>
-                <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} required maxLength={500} placeholder="/ 또는 클릭으로 위치를 찍은 뒤 남겨요" />
+                <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} required maxLength={500} placeholder="위치 찍기(또는 /)로 자리를 찍은 뒤 남겨요" />
               </div>
               <div className="compose-bar">
                 <label className="field field-name">
