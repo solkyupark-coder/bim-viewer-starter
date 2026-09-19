@@ -9,6 +9,7 @@
 - `NEXT_PUBLIC_*`는 dev 서버를 켤 때 박히므로 `.env.local`을 바꾸면 dev 서버를 **재시작**해야 합니다.
 - 스키마는 `supabase.sql` 한 파일이 전부입니다. 표 6개(projects, models, comments, drawings, events, app_settings), 버킷 3개(models, photos, drawings), RLS, Realtime publication, 삭제 함수 `delete_project`까지 들어 있고 몇 번을 돌려도 안전합니다.
 - 프로젝트가 기준입니다. `projects` 표에 한 행, 모델·코멘트는 `project_id`로 그 프로젝트에 묶입니다. 화면은 프로젝트를 바꾸면 그 프로젝트의 모델·코멘트만 보여 줍니다.
+- 코멘트 `kind`: `model`(3D 객체, pos_z 있음) · `dwg`(DWG/DXF 2D 좌표) · `pdf`(PDF 페이지 정규화 좌표). `/` 키로 세 화면 모두에서 핀을 찍습니다.
 
 ## "수파베이스 연동해 줘" 라고 하면 — 이 순서대로, 묻지 말고 진행
 
@@ -36,9 +37,9 @@
 - `.env.local`은 `.gitignore`에 있어 올라가지 않습니다. 배포 전에 `.env.local`의 두 값을 `vercel env add`로 Production에 넣습니다. 안 넣으면 배포된 주소는 "로컬" 모드로 뜹니다.
 - 배포 주소를 알려 주고, 다른 기기(옆 사람 폰)에서 열어 보라고 합니다. "Deployed"는 확인이 아닙니다.
 
-## 프로젝트 삭제 코드
+## 수정·삭제 코드
 
-- 기본 코드는 `1234`. 바꾸려면 `supabase.sql` 5번 항목의 update 문을 `execute_sql`로 돌립니다. 코드는 해시로만 저장되며 대화나 파일에 평문으로 남기지 않습니다.
+- 코멘트 수정 코드 기본값 `0000`(`edit_code_sha256`), 프로젝트·코멘트 삭제 코드 기본값 `1234`(`delete_code_sha256`). 바꾸려면 `supabase.sql` 5번 항목의 update 문을 `execute_sql`로 돌립니다. 코드는 해시로만 저장되며 대화나 파일에 평문으로 남기지 않습니다.
 - 삭제해도 Storage의 실제 파일은 남습니다. 대시보드 Storage에서 지웁니다.
 
 ## 절대 하지 않는 것

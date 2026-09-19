@@ -5,7 +5,7 @@
 -- 확인: Table Editor에 projects / models / comments / drawings / events,
 --       projects.name (프로젝트 이름. 새로 만든 프로젝트는 여기 한 행),
 --       models.project_id / comments.project_id (어느 프로젝트 것인지. project 텍스트 칸은 옛 행 호환용),
---       comments.kind / drawing_id / page (도면 핀, pos_x·pos_y는 0–1),
+--       comments.kind = model | pdf | dwg, drawing_id / page (PDF 핀, pos_x·pos_y는 0–1),
 --       events.type = file_add | file_replace | comment | done,
 --       Storage에 models / photos / drawings (모두 public).
 -- ─────────────────────────────────────────────────────────────
@@ -70,12 +70,9 @@ alter table public.comments add column if not exists kind text not null default 
 alter table public.comments add column if not exists drawing_id uuid references public.drawings(id) on delete cascade;
 alter table public.comments add column if not exists page integer;
 
-do $$
-begin
-  if not exists (select 1 from pg_constraint where conname = 'comments_kind_check') then
-    alter table public.comments add constraint comments_kind_check check (kind in ('model', 'pdf'));
-  end if;
-end $$;
+-- kind: model(3D 객체) · pdf(도면 PDF 페이지) · dwg(DWG/DXF 2D 좌표)
+alter table public.comments drop constraint if exists comments_kind_check;
+alter table public.comments add constraint comments_kind_check check (kind in ('model', 'pdf', 'dwg'));
 
 -- 활동. 표가 없어도 뷰어는 파일·코멘트에서 목록을 만듭니다.
 create table if not exists public.events (
@@ -270,3 +267,73 @@ end $$;
 
 revoke all on function public.delete_project(uuid, text) from public;
 grant execute on function public.delete_project(uuid, text) to anon, authenticated;
+
+-- 6. 코멘트 수정·삭제 (코드 필요)
+--    수정 코드와 삭제 코드는 따로입니다. 기본값: 수정 0000, 삭제는 5번의 코드와 같음.
+--      update public.app_settings set value = encode(extensions.digest('새코드', 'sha256'), 'hex') where key = 'edit_code_sha256';
+insert into public.app_settings (key, value)
+values ('edit_code_sha256', encode(extensions.digest('0000', 'sha256'), 'hex'))
+on conflict (key) do nothing;
+
+-- 지운 행도 어느 프로젝트 것이었는지 실시간으로 알 수 있게
+alter table public.comments replica identity full;
+
+create or replace function public.check_code(p_key text, p_code text)
+returns boolean
+language sql
+security definer
+set search_path = public, extensions
+as $$
+  select exists (
+    select 1 from public.app_settings
+    where key = p_key and p_code is not null and value = encode(digest(p_code, 'sha256'), 'hex')
+  );
+$$;
+revoke all on function public.check_code(text, text) from public;
+
+create or replace function public.update_comment(p_comment_id uuid, p_code text, p_body text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_row public.comments;
+begin
+  if not public.check_code('edit_code_sha256', p_code) then
+    raise exception 'wrong code' using errcode = '28000';
+  end if;
+  if p_body is null or btrim(p_body) = '' then
+    raise exception 'empty body' using errcode = '22023';
+  end if;
+  update public.comments set body = btrim(p_body) where id = p_comment_id returning * into v_row;
+  if v_row.id is null then
+    raise exception 'no such comment' using errcode = 'P0002';
+  end if;
+  return to_jsonb(v_row);
+end $$;
+
+create or replace function public.delete_comment(p_comment_id uuid, p_code text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_row public.comments;
+begin
+  if not public.check_code('delete_code_sha256', p_code) then
+    raise exception 'wrong code' using errcode = '28000';
+  end if;
+  delete from public.comments where id = p_comment_id returning * into v_row;
+  if v_row.id is null then
+    raise exception 'no such comment' using errcode = 'P0002';
+  end if;
+  delete from public.events where ref = p_comment_id::text and type in ('comment', 'done');
+  return jsonb_build_object('id', v_row.id, 'photo_path', v_row.photo_path);
+end $$;
+
+revoke all on function public.update_comment(uuid, text, text) from public;
+revoke all on function public.delete_comment(uuid, text) from public;
+grant execute on function public.update_comment(uuid, text, text) to anon, authenticated;
+grant execute on function public.delete_comment(uuid, text) to anon, authenticated;

@@ -192,7 +192,17 @@ body {
   box-shadow: none;
 }
 .panel-left { left: 48px; border-right: 1px solid var(--outline); }
-.panel-right { right: 0; border-left: 1px solid var(--outline); }
+.panel-right { right: 0; width: var(--right-w, 268px); border-left: 1px solid var(--outline); }
+.panel-resize {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 1;
+}
+.panel-resize:hover { background: linear-gradient(to right, transparent 2px, var(--primary) 2px, var(--primary) 4px, transparent 4px); }
 .panel-head {
   display: flex;
   align-items: baseline;
@@ -324,7 +334,7 @@ body {
   padding: 7px 10px;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
-  min-height: 0;
+  flex: 0 0 auto; /* 세로 flex에서 눌리지 않게. 넘치면 목록이 스크롤됩니다 */
 }
 .comments li.on, .comments .thread.on { background: var(--hover); }
 .comments li.done .text, .comments .thread.done .text { color: var(--fg-3); }
@@ -408,6 +418,17 @@ body {
 }
 .done-check.on { color: var(--primary); }
 .done-check input { accent-color: var(--primary); margin: 0; }
+.thread-acts { display: inline-flex; gap: 6px; margin-left: 6px; }
+.thread-act {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: 500 10px/1 var(--mono);
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.thread-act:hover { color: var(--primary); }
+.thread-act:last-child:hover { color: #c0392b; }
 .thumb-btn {
   display: block;
   margin-top: 6px;
@@ -681,8 +702,8 @@ body {
   box-shadow: none;
 }
 .is-models .toolbar { max-width: min(1080px, calc(100vw - 360px)); }
-.is-comments .toolbar { max-width: min(1080px, calc(100vw - 320px)); }
-.is-models.is-comments .toolbar { max-width: min(1080px, calc(100vw - 620px)); }
+.is-comments .toolbar { max-width: min(1080px, calc(100vw - var(--right-w, 268px) - 52px)); }
+.is-models.is-comments .toolbar { max-width: min(1080px, calc(100vw - var(--right-w, 268px) - 352px)); }
 .tg {
   position: relative;
   display: grid;

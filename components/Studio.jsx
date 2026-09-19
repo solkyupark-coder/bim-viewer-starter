@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ViewerEngine } from '@/lib/viewer-engine';
-import { kindOf, is3d, isShareableId, sharePath, fmtDate, safeFileName, isPdfName, isImageFile, issueStatus, nextIssueStatus, lectureErr, hashColor, peersFromPresence, isPdfComment, commentSurface, commentWhere, schemaGap, unitPos, ndcFromEvent, ndcToUnit, pageTurn, clampPdfZoom, pageUnitFromRotated, rotatedFromPageUnit, groupProjects, sampleBundle, hlabBundle, mergeLectureModels, mergeLectureDrawings, SAMPLE_PROJECT, HLAB_PROJECT, rowProject, fileKindLabel, lectureFileName, commentHotkeyBlocked, projectKey, projectNameOf, projectActivity, activityTitle, fileEventType, asActivityEvent, eventKind, PROJECTS_KEY, readNamedProjects, addNamedProject, pickProject } from '@/lib/format';
+import { kindOf, is3d, isShareableId, sharePath, fmtDate, safeFileName, isPdfName, isImageFile, issueStatus, nextIssueStatus, lectureErr, hashColor, peersFromPresence, isPdfComment, is2dComment, commentSurface, commentWhere, schemaGap, unitPos, ndcFromEvent, ndcToUnit, pageTurn, clampPdfZoom, pageUnitFromRotated, rotatedFromPageUnit, groupProjects, sampleBundle, hlabBundle, mergeLectureModels, mergeLectureDrawings, SAMPLE_PROJECT, HLAB_PROJECT, rowProject, fileKindLabel, lectureFileName, commentHotkeyBlocked, projectKey, projectNameOf, projectActivity, activityTitle, fileEventType, asActivityEvent, eventKind, PROJECTS_KEY, readNamedProjects, addNamedProject, pickProject } from '@/lib/format';
 import { paintPdfPage } from '@/lib/pdf-view';
 import { supabase, hasSupabase, BUCKET, PHOTO_BUCKET, DRAWING_BUCKET, APP_TITLE, publicUrl } from '@/lib/supabase';
 
 const AUTHOR_KEY = 'viewer-author';
+const RIGHT_W_KEY = 'viewer-right-w';
 const ACTIVITY_KEY = 'viewer-activity';
 const PRESENCE_KEY = 'viewer-presence';
 function readActivity() {
@@ -189,6 +190,7 @@ export default function Studio() {
   const [dragging, setDragging] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const [rightW, setRightW] = useState(268); // 코멘트 패널 너비. 왼쪽 가장자리를 끌어 조절
   const [author, setAuthor] = useState('');
   const [extraEvents, setExtraEvents] = useState([]);
   const [body, setBody] = useState('');
@@ -235,6 +237,8 @@ export default function Studio() {
 
   useEffect(() => {
     setAuthor(localStorage.getItem(AUTHOR_KEY) || '');
+    const w = Number(localStorage.getItem(RIGHT_W_KEY));
+    if (w >= 220 && w <= 720) setRightW(w);
     setExtraEvents(readActivity());
     loadProjects();
   }, []);
@@ -661,6 +665,21 @@ export default function Studio() {
       if (d) openDrawing(d, c.page || 1, false);
       return;
     }
+    if (is2dComment(c)) {
+      const eng = engRef.current;
+      if (eng && (eng.kind === 'dwg' || eng.kind === 'dxf')) {
+        setDrawing(null);
+        eng.focusComment(c);
+        return;
+      }
+      // 3D가 열려 있으면 이 프로젝트의 2D 파일을 먼저 열고, 열린 뒤에 다시 포커스합니다
+      const f = [...(project?.latest || []), ...(project?.back || [])].find((x) => x.kind === 'dwg' || x.kind === 'dxf');
+      if (f && project) {
+        pendingFocusRef.current = c.id;
+        openFile(f, project);
+      }
+      return;
+    }
     setDrawing(null);
     engRef.current?.focusComment(c);
   }
@@ -993,6 +1012,69 @@ export default function Studio() {
     return saved;
   }
 
+  function patchLocalComment(c, patch) {
+    for (const k of Object.keys(localRef.current.comments)) {
+      localRef.current.comments[k] = (localRef.current.comments[k] || []).map((row) => (row.id === c.id ? { ...row, ...patch } : row));
+    }
+  }
+
+  function dropLocalComment(c) {
+    for (const k of Object.keys(localRef.current.comments)) {
+      localRef.current.comments[k] = (localRef.current.comments[k] || []).filter((row) => row.id !== c.id);
+    }
+  }
+
+  function codeErr(kind, msg) {
+    return /wrong code|28000/i.test(msg || '') ? `${kind} 코드가 틀렸어요.` : lectureErr(msg);
+  }
+
+  // 코멘트 수정. 코드 확인은 DB 함수(update_comment)가 합니다. 이 브라우저에만 있는 코멘트는 그냥 고칩니다.
+  async function onEditComment(c) {
+    const remote = hasSupabase && isShareableId(String(c.id || ''));
+    let code = '';
+    if (remote) {
+      code = window.prompt('수정 코드를 입력하세요.');
+      if (code == null) return;
+    }
+    const body = window.prompt('내용을 고쳐요.', c.body || '');
+    if (body == null || !body.trim()) return;
+    if (remote) {
+      const { error } = await supabase.rpc('update_comment', { p_comment_id: c.id, p_code: code.trim(), p_body: body.trim() });
+      if (error) {
+        setCommentErr(true);
+        setCommentStatus(codeErr('수정', error.message));
+        return;
+      }
+    }
+    patchLocalComment(c, { body: body.trim() });
+    setCommentErr(false);
+    setCommentStatus('고쳤어요.');
+    await loadComments(projectIdsRef.current);
+  }
+
+  // 코멘트 삭제. 코드 확인은 DB 함수(delete_comment)가 합니다.
+  async function onDeleteComment(c) {
+    const remote = hasSupabase && isShareableId(String(c.id || ''));
+    if (remote) {
+      const code = window.prompt('이 코멘트를 지웁니다. 삭제 코드를 입력하세요.');
+      if (code == null) return;
+      const { error } = await supabase.rpc('delete_comment', { p_comment_id: c.id, p_code: code.trim() });
+      if (error) {
+        setCommentErr(true);
+        setCommentStatus(codeErr('삭제', error.message));
+        return;
+      }
+    } else if (!window.confirm('이 코멘트를 지울까요?')) {
+      return;
+    }
+    dropLocalComment(c);
+    if (pending && pending.id === c.id) setPending(null);
+    setCommentErr(false);
+    setCommentStatus('지웠어요.');
+    await loadComments(projectIdsRef.current);
+    await loadEvents();
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     if (!current || saving || !body.trim()) return;
@@ -1002,15 +1084,16 @@ export default function Studio() {
       return;
     }
     const pdfPin = pending?.kind === 'pdf';
+    const dwgPin = !pdfPin && pending != null && pending.x != null && pending.z == null; // DWG/DXF 위 핀
     const row = {
       author: author.trim(),
       body: body.trim(),
       pos_x: pending?.x ?? null,
       pos_y: pending?.y ?? null,
-      pos_z: pdfPin ? null : pending?.z ?? null,
-      element_id: pdfPin ? null : pending?.element_id ?? null,
-      element_name: pdfPin ? null : pending?.element_name ?? null,
-      ...(pdfPin ? { kind: 'pdf', drawing_id: pending.drawing_id, page: pending.page || 1 } : {}),
+      pos_z: pdfPin || dwgPin ? null : pending?.z ?? null,
+      element_id: pdfPin || dwgPin ? null : pending?.element_id ?? null,
+      element_name: pdfPin || dwgPin ? null : pending?.element_name ?? null,
+      ...(pdfPin ? { kind: 'pdf', drawing_id: pending.drawing_id, page: pending.page || 1 } : dwgPin ? { kind: 'dwg' } : {}),
     };
     setSaving(true);
     setCommentErr(false);
@@ -1332,6 +1415,24 @@ export default function Studio() {
     clearComments();
   }
 
+  function onRightResizeStart(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = rightW;
+    const onMove = (ev) => {
+      const w = Math.max(220, Math.min(720, startW + (startX - ev.clientX)));
+      setRightW(w);
+    };
+    const onUp = (ev) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      const w = Math.max(220, Math.min(720, startW + (startX - ev.clientX)));
+      try { localStorage.setItem(RIGHT_W_KEY, String(w)); } catch { /* quota */ }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
   function isBuiltinProject(label) {
     return label === SAMPLE_PROJECT || label === HLAB_PROJECT;
   }
@@ -1390,6 +1491,7 @@ export default function Studio() {
   return (
     <div
       className={`studio${leftOpen ? ' is-models' : ''}${rightOpen ? ' is-comments' : ''}`}
+      style={{ '--right-w': `${rightW}px` }}
       onDragEnter={(e) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();
@@ -1814,6 +1916,7 @@ export default function Studio() {
 
       {rightOpen && (
         <aside className="panel panel-right" aria-label="코멘트">
+          <div className="panel-resize" onPointerDown={onRightResizeStart} title="끌어서 너비 조절" />
           <header className="panel-head">
             <h2>코멘트</h2>
             {current && <p className="quiet">{comments.length}</p>}
@@ -1853,6 +1956,10 @@ export default function Studio() {
                         <input type="checkbox" checked={st === 'done'} onChange={() => toggleStatus(c)} />
                         완료
                       </label>
+                      <span className="thread-acts">
+                        <button type="button" className="thread-act" onClick={() => onEditComment(c)} title="수정 (코드 필요)">수정</button>
+                        <button type="button" className="thread-act" onClick={() => onDeleteComment(c)} title="삭제 (코드 필요)">삭제</button>
+                      </span>
                     </div>
                     <p className="text" onClick={() => focusMark(c, i)}>{c.body}</p>
                     {src && (
