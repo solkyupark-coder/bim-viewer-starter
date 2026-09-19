@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ViewerEngine } from '@/lib/viewer-engine';
-import { kindOf, is3d, isShareableId, sharePath, fmtDate, safeFileName, isPdfName, isImageFile, issueStatus, nextIssueStatus, lectureErr, hashColor, peersFromPresence, isPdfComment, commentSurface, commentWhere, schemaGap, unitPos, ndcFromEvent, ndcToUnit, pageTurn, clampPdfZoom, pageUnitFromRotated, rotatedFromPageUnit, groupProjects, sampleBundle, hlabBundle, mergeLectureModels, mergeLectureDrawings, SAMPLE_PROJECT, fileKindLabel, lectureFileName, commentHotkeyBlocked, projectKey, projectNameOf, projectActivity, activityTitle, fileEventType, asActivityEvent, eventKind, PROJECTS_KEY, readNamedProjects, addNamedProject, pickProject } from '@/lib/format';
+import { kindOf, is3d, isShareableId, sharePath, fmtDate, safeFileName, isPdfName, isImageFile, issueStatus, nextIssueStatus, lectureErr, hashColor, peersFromPresence, isPdfComment, commentSurface, commentWhere, schemaGap, unitPos, ndcFromEvent, ndcToUnit, pageTurn, clampPdfZoom, pageUnitFromRotated, rotatedFromPageUnit, groupProjects, sampleBundle, hlabBundle, mergeLectureModels, mergeLectureDrawings, SAMPLE_PROJECT, HLAB_PROJECT, rowProject, fileKindLabel, lectureFileName, commentHotkeyBlocked, projectKey, projectNameOf, projectActivity, activityTitle, fileEventType, asActivityEvent, eventKind, PROJECTS_KEY, readNamedProjects, addNamedProject, pickProject } from '@/lib/format';
 import { paintPdfPage } from '@/lib/pdf-view';
 import { supabase, hasSupabase, BUCKET, PHOTO_BUCKET, DRAWING_BUCKET, APP_TITLE, publicUrl } from '@/lib/supabase';
 
@@ -148,6 +148,9 @@ export default function Studio() {
   const drawingsAllRef = useRef([]);
   const photosRef = useRef([]);
   const projectIdsRef = useRef([]);
+  const projectMapRef = useRef(new Map());
+  const projectsOkRef = useRef(true);
+  const commentsSeqRef = useRef(0);
   const osFileDropRef = useRef(null);
   const pendingFocusRef = useRef(null);
   const explodeFly = useRef(null);
@@ -233,7 +236,7 @@ export default function Studio() {
   useEffect(() => {
     setAuthor(localStorage.getItem(AUTHOR_KEY) || '');
     setExtraEvents(readActivity());
-    setNamedProjects(readNamedProjects(localStorage.getItem(PROJECTS_KEY)));
+    loadProjects();
   }, []);
 
   useEffect(() => {
@@ -299,7 +302,12 @@ export default function Studio() {
     const ch = supabase
       .channel('review')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, (payload) => {
-        if (projectIdsRef.current.includes(payload.new?.model_id)) loadComments(projectIdsRef.current);
+        const row = payload.new || payload.old || {};
+        const pid = activeProjectId();
+        if ((pid && row.project_id === pid) || projectIdsRef.current.includes(row.model_id)) loadComments(projectIdsRef.current);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        loadProjects();
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'drawings' }, (payload) => {
         if (modelsRef.current.some((m) => m.id === payload.new?.model_id)) loadAllDrawings(modelsRef.current);
@@ -485,6 +493,49 @@ export default function Studio() {
     }));
   }
 
+  // 프로젝트는 projects 표가 기준입니다. 표가 없으면(옛 스키마) 이 브라우저에만 남깁니다.
+  async function loadProjects() {
+    const fromLocal = () => setNamedProjects(readNamedProjects(localStorage.getItem(PROJECTS_KEY)));
+    if (!hasSupabase || !projectsOkRef.current) {
+      fromLocal();
+      return;
+    }
+    const { data, error } = await supabase.from('projects').select('*').order('created_at', { ascending: true });
+    if (error) {
+      if (schemaGap(error.message)) projectsOkRef.current = false;
+      fromLocal();
+      return;
+    }
+    projectMapRef.current = new Map((data || []).map((p) => [p.name, p.id]));
+    setNamedProjects((data || []).map((p) => p.name));
+  }
+
+  function projectIdOf(name) {
+    return projectMapRef.current.get(String(name || '').trim()) || null;
+  }
+
+  function activeProjectId() {
+    return projectIdOf(projectNameOf(activeKeyRef.current));
+  }
+
+  async function ensureProjectId(name) {
+    const label = String(name || '').trim();
+    if (!label || !hasSupabase || !projectsOkRef.current) return null;
+    const known = projectMapRef.current.get(label);
+    if (known) return known;
+    let { data, error } = await supabase.from('projects').insert({ name: label, owner: authorRef.current?.trim() || null }).select().single();
+    if (error && /duplicate|unique|23505/i.test(error.message || '')) {
+      ({ data, error } = await supabase.from('projects').select('*').eq('name', label).maybeSingle());
+    }
+    if (error || !data) {
+      if (error && schemaGap(error.message)) projectsOkRef.current = false;
+      return null;
+    }
+    projectMapRef.current.set(label, data.id);
+    setNamedProjects((list) => addNamedProject(list, label));
+    return data.id;
+  }
+
   async function listModels() {
     const local = seedLocal();
     if (!hasSupabase) return local;
@@ -522,15 +573,26 @@ export default function Studio() {
     setDrawings(rows);
   }
 
-  async function loadComments(modelIds) {
+  async function loadComments(modelIds, projectId = activeProjectId()) {
+    const seq = ++commentsSeqRef.current;
     const ids = (Array.isArray(modelIds) ? modelIds : [modelIds]).filter(Boolean);
     const remoteIds = ids.filter((id) => isShareableId(String(id)));
     let list = [];
-    if (!hasSupabase || !remoteIds.length) list = ids.flatMap((id) => (localRef.current.comments[id] || []).filter((c) => String(c.body || '').trim() !== '4'));
+    if (!hasSupabase || (!remoteIds.length && !projectId)) list = ids.flatMap((id) => (localRef.current.comments[id] || []).filter((c) => String(c.body || '').trim() !== '4'));
     else {
-      const { data, error } = await supabase.from('comments').select('*').in('model_id', remoteIds).order('created_at', { ascending: true });
-      list = error ? [] : data;
+      // 이 프로젝트 것만: project_id가 같거나, 이 프로젝트 모델에 달린 코멘트
+      let q = supabase.from('comments').select('*');
+      if (projectId && remoteIds.length) q = q.or(`project_id.eq.${projectId},model_id.in.(${remoteIds.join(',')})`);
+      else if (projectId) q = q.eq('project_id', projectId);
+      else q = q.in('model_id', remoteIds);
+      let { data, error } = await q.order('created_at', { ascending: true });
+      if (error && projectId && remoteIds.length && schemaGap(error.message)) {
+        ({ data, error } = await supabase.from('comments').select('*').in('model_id', remoteIds).order('created_at', { ascending: true }));
+      }
+      list = error || !data ? [] : data;
     }
+    // 기다리는 사이 다른 프로젝트를 열었으면 이 결과는 버립니다
+    if (seq !== commentsSeqRef.current) return;
     const locals = ids.flatMap((id) => localRef.current.comments[id] || []);
     list = list.map((r) => {
       const loc = locals.find((c) => c.id === r.id);
@@ -552,6 +614,14 @@ export default function Studio() {
       photosRef.current = next;
       return next;
     });
+  }
+
+  function clearComments() {
+    commentsSeqRef.current += 1;
+    commentsRef.current = [];
+    setComments([]);
+    setFocusIdx(null);
+    engRef.current?.setPins([], null);
   }
 
   function commentPhotoUrl(c) {
@@ -620,10 +690,11 @@ export default function Studio() {
     const eng = engRef.current;
     if (!pdf && !eng) return;
     const head = project.head;
-    const same = currentRef.current && head && currentRef.current.id === head.id;
+    const same = currentRef.current && head && currentRef.current.id === head.id && activeKeyRef.current === project.key;
     currentRef.current = head;
     projectIdsRef.current = project.models.map((m) => m.id);
     if (!same) {
+      clearComments();
       setCurrent(head);
       setPending(null);
       setSelected(null);
@@ -640,6 +711,8 @@ export default function Studio() {
       setDrawing(null);
       setPdfPage(1);
       setPdfPages(1);
+      setActiveKey(project.key);
+      activeKeyRef.current = project.key;
       await loadComments(projectIdsRef.current);
     }
     setActiveId(file.id);
@@ -699,6 +772,7 @@ export default function Studio() {
     const head = p.head;
     currentRef.current = head || null;
     projectIdsRef.current = (p.models || []).map((m) => m.id);
+    clearComments();
     setCurrent(head || null);
     setPending(null);
     setSelected(null);
@@ -848,8 +922,9 @@ export default function Studio() {
       setUploadStatus(lectureErr(up.error.message));
       return;
     }
+    const project_id = await ensureProjectId(project);
     if (current && !current.project) {
-      const tagged = await supabase.from('models').update({ project }).eq('id', current.id);
+      const tagged = await supabase.from('models').update(project_id ? { project, project_id } : { project }).eq('id', current.id);
       if (!tagged.error) {
         currentRef.current = { ...current, project };
         setCurrent((c) => (c && c.id === current.id ? { ...c, project } : c));
@@ -857,7 +932,7 @@ export default function Studio() {
         modelsRef.current = modelsRef.current.map((row) => (row.id === current.id ? { ...row, project } : row));
       }
     }
-    let ins = await supabase.from('models').insert({ name: file.name, path, kind, owner: author.trim(), project }).select().single();
+    let ins = await supabase.from('models').insert({ name: file.name, path, kind, owner: author.trim(), project, ...(project_id ? { project_id } : {}) }).select().single();
     if (ins.error && /project|column|schema cache/i.test(ins.error.message || '')) {
       ins = await supabase.from('models').insert({ name: file.name, path, kind, owner: author.trim() }).select().single();
     }
@@ -963,6 +1038,8 @@ export default function Studio() {
         return;
       }
       const payload = { model_id: current.id, ...row };
+      const pid = current.project_id || activeProjectId();
+      if (pid) payload.project_id = pid;
       if (pdfPin && !isShareableId(String(payload.drawing_id || ''))) delete payload.drawing_id;
       if (photo) {
         const path = `${current.id}/${Date.now()}_${safeFileName(photo.name)}`;
@@ -973,7 +1050,11 @@ export default function Studio() {
         }
         payload.photo_path = path;
       }
-      const { data, error } = await supabase.from('comments').insert(payload).select().single();
+      let { data, error } = await supabase.from('comments').insert(payload).select().single();
+      if (error && payload.project_id && schemaGap(error.message)) {
+        delete payload.project_id;
+        ({ data, error } = await supabase.from('comments').insert(payload).select().single());
+      }
       if (error) {
         failDb(error.message);
         return;
@@ -1224,13 +1305,21 @@ export default function Studio() {
     if (next) openProject(next);
   }
 
-  function onCreateProject(e) {
+  async function onCreateProject(e) {
     e.preventDefault();
     const label = String(newName || '').trim();
     if (!label) return;
     const next = addNamedProject(namedProjects, label);
     setNamedProjects(next);
-    try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(next)); } catch { /* quota */ }
+    if (hasSupabase && projectsOkRef.current) {
+      const id = await ensureProjectId(label);
+      if (!id) {
+        setUploadErr(true);
+        setUploadStatus('프로젝트를 저장하지 못했어요.');
+      }
+    } else {
+      try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(next)); } catch { /* quota */ }
+    }
     setNewName('');
     setActiveKey(projectKey(label));
     activeKeyRef.current = projectKey(label);
@@ -1240,8 +1329,55 @@ export default function Studio() {
     setView(null);
     setDrawing(null);
     setActiveId('');
-    setComments([]);
-    commentsRef.current = [];
+    clearComments();
+  }
+
+  function isBuiltinProject(label) {
+    return label === SAMPLE_PROJECT || label === HLAB_PROJECT;
+  }
+
+  // 프로젝트 삭제. 코드 확인은 DB 함수(delete_project)가 합니다. anon 키로는 표를 직접 못 지웁니다.
+  async function onDeleteProject() {
+    const p = project;
+    if (!p || isBuiltinProject(p.label)) return;
+    const pid = projectIdOf(p.label);
+    if (hasSupabase && !pid) {
+      setUploadErr(true);
+      setUploadStatus('이 프로젝트는 표에 없어 지울 수 없어요.');
+      return;
+    }
+    if (hasSupabase) {
+      const code = window.prompt(`"${p.label}" 프로젝트를 지웁니다. 모델·도면·코멘트가 함께 지워져요.\n삭제 코드를 입력하세요.`);
+      if (code == null) return;
+      const { data, error } = await supabase.rpc('delete_project', { p_project_id: pid, p_code: code.trim() });
+      if (error) {
+        setUploadErr(true);
+        setUploadStatus(/wrong code|28000/i.test(error.message || '') ? '삭제 코드가 틀렸어요.' : lectureErr(error.message));
+        return;
+      }
+      projectMapRef.current.delete(p.label);
+      const n = Number(data?.models || 0) + Number(data?.drawings || 0);
+      setUploadErr(false);
+      setUploadStatus(n ? `"${p.label}" 지웠어요. 파일 ${n}개는 Storage에 남아 있어요.` : `"${p.label}" 지웠어요.`);
+    } else {
+      if (!window.confirm(`"${p.label}" 프로젝트를 이 브라우저에서 지울까요?`)) return;
+      const next = namedProjects.filter((name) => name !== p.label);
+      setNamedProjects(next);
+      try { localStorage.setItem(PROJECTS_KEY, JSON.stringify(next)); } catch { /* quota */ }
+      localRef.current.models = localRef.current.models.filter((m) => rowProject(m) !== p.label);
+      setUploadErr(false);
+      setUploadStatus(`"${p.label}" 지웠어요.`);
+    }
+    await loadProjects();
+    const list = await listModels();
+    modelsRef.current = list;
+    setModels(list);
+    const draws = await fetchDrawings(list.map((m) => m.id));
+    drawingsAllRef.current = draws;
+    setDrawings(draws);
+    const next = pickProject(treeOf(list, draws), SAMPLE_PROJECT);
+    if (next) await openProject(next);
+    await loadEvents();
   }
 
   const visibleComments = comments
@@ -1562,6 +1698,9 @@ export default function Studio() {
         <aside className="panel panel-left" aria-label="프로젝트">
           <header className="panel-head">
             <h1>{project?.label || '프로젝트'}</h1>
+            {project && !isBuiltinProject(project.label) && (
+              <button type="button" className="proj-del" onClick={onDeleteProject} title="프로젝트 삭제 (코드 필요)">삭제</button>
+            )}
           </header>
           <div className="panel-block">
             <form className="proj-new" onSubmit={onCreateProject}>

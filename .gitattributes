@@ -1,0 +1,12 @@
+* text=auto
+*.pdf  binary
+*.glb  binary
+*.gltf binary
+*.dwg  binary
+*.3dm  binary
+*.dae  binary
+*.wasm binary
+*.png  binary
+*.jpg  binary
+*.ifc  -text
+*.dxf  -text

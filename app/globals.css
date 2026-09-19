@@ -605,6 +605,18 @@ body {
 .compose-bar .file { flex: 1; min-width: 0; }
 .compose-bar .btn-primary { flex: 0 0 auto; }
 .field { display: flex; flex-direction: column; gap: 4px; color: var(--fg-2); font-size: 11px; font-weight: 500; }
+.proj-del {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-3);
+  font: 500 11px/1 var(--font);
+  cursor: pointer;
+}
+.proj-del:hover { color: #c0392b; border-color: #c0392b; }
 .proj-new { display: flex; gap: 6px; }
 .proj-new input {
   flex: 1;
