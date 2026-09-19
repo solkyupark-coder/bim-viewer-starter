@@ -2030,7 +2030,7 @@ export default function Studio() {
                       e.target.value = '';
                     }}
                   />
-                  <span>{photo ? photo.name : '현장 사진'}</span>
+                  <span>{photo ? photo.name : '사진 첨부'}</span>
                 </label>
                 {photo && <Btn onClick={() => setPhoto(null)}>빼기</Btn>}
                 <Btn type="submit" variant="primary" disabled={saving || !body.trim()}>{saving ? '저장 중…' : '남기기'}</Btn>
@@ -2051,7 +2051,7 @@ export default function Studio() {
         <div className="lightbox" role="dialog" aria-modal="true" aria-label={preview.name || '보기'} onClick={() => setPreview(null)}>
           <div className="lightbox-card" onClick={(e) => e.stopPropagation()}>
             <header className="lightbox-head">
-              <h3>현장 사진</h3>
+              <h3>사진</h3>
               <Btn onClick={() => setPreview(null)}>닫기</Btn>
             </header>
             <img className="lightbox-photo" src={preview.url} alt="" />
